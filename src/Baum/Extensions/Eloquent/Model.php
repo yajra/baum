@@ -1,119 +1,130 @@
 <?php
+
 namespace Baum\Extensions\Eloquent;
 
+use Baum\Extensions\Query\Builder as QueryBuilder;
 use Illuminate\Database\Eloquent\Model as BaseModel;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
-use Baum\Extensions\Query\Builder as QueryBuilder;
 
-abstract class Model extends BaseModel {
-
-  /**
-   * Reloads the model from the database.
-   *
-   * @return \Baum\Node
-   *
-   * @throws ModelNotFoundException
-   */
-  public function reload() {
-    if ( $this->exists || ($this->areSoftDeletesEnabled() && $this->trashed()) ) {
-      $fresh = $this->getFreshInstance();
-
-      if ( is_null($fresh) )
-        throw with(new ModelNotFoundException)->setModel(get_called_class());
-
-      $this->setRawAttributes($fresh->getAttributes(), true);
-
-      $this->setRelations($fresh->getRelations());
-
-      $this->exists = $fresh->exists;
-    } else {
-      // Revert changes if model is not persisted
-      $this->attributes = $this->original;
+abstract class Model extends BaseModel
+{
+    /**
+     * Register a moving model event with the dispatcher.
+     *
+     * @param  Closure|string $callback
+     * @return void
+     */
+    public static function moving($callback, $priority = 0)
+    {
+        static::registerModelEvent('moving', $callback, $priority);
     }
 
-    return $this;
-  }
+    /**
+     * Register a moved model event with the dispatcher.
+     *
+     * @param  Closure|string $callback
+     * @return void
+     */
+    public static function moved($callback, $priority = 0)
+    {
+        static::registerModelEvent('moved', $callback, $priority);
+    }
 
-  /**
-   * Get the observable event names.
-   *
-   * @return array
-   */
-  public function getObservableEvents() {
-    return array_merge(array('moving', 'moved'), parent::getObservableEvents());
-  }
+    /**
+     * Static method which returns wether soft delete functionality is enabled
+     * on the model.
+     *
+     * @return boolean
+     */
+    public static function softDeletesEnabled()
+    {
+        return with(new static)->areSoftDeletesEnabled();
+    }
 
-  /**
-   * Register a moving model event with the dispatcher.
-   *
-   * @param  Closure|string  $callback
-   * @return void
-   */
-  public static function moving($callback, $priority = 0) {
-    static::registerModelEvent('moving', $callback, $priority);
-  }
+    /**
+     * Reloads the model from the database.
+     *
+     * @return \Baum\Node
+     * @throws ModelNotFoundException
+     */
+    public function reload()
+    {
+        if ($this->exists || ($this->areSoftDeletesEnabled() && $this->trashed())) {
+            $fresh = $this->getFreshInstance();
 
-  /**
-   * Register a moved model event with the dispatcher.
-   *
-   * @param  Closure|string  $callback
-   * @return void
-   */
-  public static function moved($callback, $priority = 0) {
-    static::registerModelEvent('moved', $callback, $priority);
-  }
+            if (is_null($fresh)) {
+                throw with(new ModelNotFoundException)->setModel(get_called_class());
+            }
 
-  /**
-   * Get a new query builder instance for the connection.
-   *
-   * @return \Baum\Extensions\Query\Builder
-   */
-  protected function newBaseQueryBuilder() {
-    $conn = $this->getConnection();
+            $this->setRawAttributes($fresh->getAttributes(), true);
 
-    $grammar = $conn->getQueryGrammar();
+            $this->setRelations($fresh->getRelations());
 
-    return new QueryBuilder($conn, $grammar, $conn->getPostProcessor());
-  }
+            $this->exists = $fresh->exists;
+        } else {
+            // Revert changes if model is not persisted
+            $this->attributes = $this->original;
+        }
 
-  /**
-   * Returns a fresh instance from the database.
-   *
-   * @return \Baum\Node
-   */
-  protected function getFreshInstance() {
-    if ( $this->areSoftDeletesEnabled() )
-      return static::withTrashed()->find($this->getKey());
+        return $this;
+    }
 
-    return static::find($this->getKey());
-  }
+    /**
+     * Returns wether soft delete functionality is enabled on the model or not.
+     *
+     * @return boolean
+     */
+    public function areSoftDeletesEnabled()
+    {
+        // To determine if there's a global soft delete scope defined we must
+        // first determine if there are any, to workaround a non-existent key error.
+        $globalScopes = $this->getGlobalScopes();
 
-  /**
-   * Returns wether soft delete functionality is enabled on the model or not.
-   *
-   * @return boolean
-   */
-  public function areSoftDeletesEnabled() {
-    // To determine if there's a global soft delete scope defined we must
-    // first determine if there are any, to workaround a non-existent key error.
-    $globalScopes = $this->getGlobalScopes();
+        if (count($globalScopes) === 0) {
+            return false;
+        }
 
-    if ( count($globalScopes) === 0 ) return false;
+        // Now that we're sure that the calling class has some kind of global scope
+        // we check for the SoftDeletingScope existance
+        return static::hasGlobalScope(new SoftDeletingScope);
+    }
 
-    // Now that we're sure that the calling class has some kind of global scope
-    // we check for the SoftDeletingScope existance
-    return static::hasGlobalScope(new SoftDeletingScope);
-  }
+    /**
+     * Returns a fresh instance from the database.
+     *
+     * @return \Baum\Node
+     */
+    protected function getFreshInstance()
+    {
+        if ($this->areSoftDeletesEnabled()) {
+            return static::withTrashed()->find($this->getKey());
+        }
 
-  /**
-   * Static method which returns wether soft delete functionality is enabled
-   * on the model.
-   *
-   * @return boolean
-   */
-  public static function softDeletesEnabled() {
-    return with(new static)->areSoftDeletesEnabled();
-  }
+        return static::find($this->getKey());
+    }
 
+    /**
+     * Get the observable event names.
+     *
+     * @return array
+     */
+    public function getObservableEvents()
+    {
+        return array_merge(['moving', 'moved'], parent::getObservableEvents());
+    }
+
+    /**
+     * Get a new query builder instance for the connection.
+     *
+     * @return \Baum\Extensions\Query\Builder
+     */
+    protected function newBaseQueryBuilder()
+    {
+        $conn = $this->getConnection();
+
+        $grammar = $conn->getQueryGrammar();
+
+        return new QueryBuilder($conn, $grammar, $conn->getPostProcessor());
+    }
 }
