@@ -37,13 +37,12 @@ abstract class Generator
     /**
      * Get the given stub by name.
      *
-     * @param  string $table
-     * @return void
+     * @param string $name
      */
     protected function getStub($name)
     {
-        if (stripos($name, '.php') === false) {
-            $name = $name . '.php';
+        if (stripos($name, '.stub') === false) {
+            $name = $name . '.stub';
         }
 
         return $this->files->get($this->getStubPath() . '/' . $name);

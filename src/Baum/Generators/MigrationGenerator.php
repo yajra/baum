@@ -62,6 +62,7 @@ class MigrationGenerator extends Generator
      * Get the name for the migration class.
      *
      * @param string $name
+     * @return string
      */
     protected function getMigrationClassName($name)
     {
